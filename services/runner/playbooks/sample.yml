@@ -1,0 +1,27 @@
+---
+- name: Bosun sample playbook
+  hosts: localhost
+  connection: local
+  gather_facts: true
+
+  tasks:
+    - name: Hello from Bosun
+      ansible.builtin.debug:
+        msg: "Job {{ lookup('env', 'JOB_ID') }} running on {{ ansible_hostname }}"
+
+    - name: Show OS info
+      ansible.builtin.debug:
+        msg: "{{ ansible_distribution }} {{ ansible_distribution_version }}"
+
+    - name: Current date
+      ansible.builtin.command: date
+      register: now
+      changed_when: false
+
+    - name: Print date
+      ansible.builtin.debug:
+        var: now.stdout
+
+    - name: Done
+      ansible.builtin.debug:
+        msg: "Playbook finished successfully at {{ ansible_date_time.iso8601 }}"

@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller
+  namespace: bosun
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: controller
+  template:
+    metadata:
+      labels:
+        app: controller
+    spec:
+      serviceAccountName: bosun-controller
+      containers:
+      - name: controller
+        image: ghcr.io/duchaineo1/controller:latest
+        env:
+        - name: DATABASE_URL
+          value: postgres://$(DB_USER):$(DB_PASSWORD)@postgres:5432/awxng
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: bosun-secrets
+              key: db-user
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bosun-secrets
+              key: db-password
+        - name: RUNNER_NAMESPACE
+          value: bosun
+        - name: DEFAULT_RUNNER_IMAGE
+          value: ghcr.io/duchaineo1/runner:latest

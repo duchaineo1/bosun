@@ -1,0 +1,46 @@
+version: '3.9'
+
+# Local dev: starts postgres + api + ui only.
+# Controller requires K8s — run it locally with KUBECONFIG pointing at your cluster.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: awxng
+      POSTGRES_USER: awxng
+      POSTGRES_PASSWORD: awxng
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../../db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U awxng"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ../../services/api
+    environment:
+      DATABASE_URL: postgres://awxng:awxng@postgres:5432/awxng
+      JWT_SECRET: dev-secret
+      DEFAULT_RUNNER_IMAGE: bosun/runner:dev
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ui:
+    build:
+      context: ../../services/ui
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
