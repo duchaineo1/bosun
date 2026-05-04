@@ -34,6 +34,14 @@ push:
 deploy-ns:
 	kubectl apply -f deploy/manifests/namespace.yaml
 
+create-pull-secret:
+	kubectl create secret docker-registry ghcr-pull-secret \
+		--docker-server=ghcr.io \
+		--docker-username=$(GITHUB_USER) \
+		--docker-password=$(GITHUB_PAT) \
+		--namespace=bosun \
+		--dry-run=client -o yaml | kubectl apply -f -
+
 deploy: deploy-ns
 	kubectl apply -f deploy/manifests/secrets.yaml
 	kubectl apply -f deploy/manifests/rbac.yaml
@@ -57,4 +65,4 @@ tidy:
 	cd services/controller && go mod tidy
 
 .PHONY: dev dev-down build build-api build-controller build-runner build-ui \
-        push deploy deploy-ns status logs-api logs-controller tidy
+        push deploy deploy-ns create-pull-secret status logs-api logs-controller tidy

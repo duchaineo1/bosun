@@ -38,20 +38,21 @@ func main() {
 	}
 
 	ns := envOr("RUNNER_NAMESPACE", "bosun")
-	defaultImage := envOr("DEFAULT_RUNNER_IMAGE", "ghcr.io/duchaineo1/runner:latest")
+	defaultImage := envOr("DEFAULT_RUNNER_IMAGE", "ghcr.io/duchaineo1/bosun-runner:latest")
+	pullSecret := os.Getenv("IMAGE_PULL_SECRET")
 
-	log.Printf("controller started  namespace=%s  default_image=%s", ns, defaultImage)
+	log.Printf("controller started  namespace=%s  default_image=%s  pull_secret=%s", ns, defaultImage, pullSecret)
 
 	ticker := time.NewTicker(5 * time.Second)
 	for range ticker.C {
-		if err := reconcile(ctx, db, k8s, ns, defaultImage); err != nil {
+		if err := reconcile(ctx, db, k8s, ns, defaultImage, pullSecret); err != nil {
 			log.Printf("reconcile: %v", err)
 		}
 	}
 }
 
-func reconcile(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, ns, defaultImage string) error {
-	if err := startPending(ctx, db, k8s, ns, defaultImage); err != nil {
+func reconcile(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, ns, defaultImage, pullSecret string) error {
+	if err := startPending(ctx, db, k8s, ns, defaultImage, pullSecret); err != nil {
 		return fmt.Errorf("startPending: %w", err)
 	}
 	if err := syncRunning(ctx, db, k8s, ns); err != nil {
@@ -60,7 +61,7 @@ func reconcile(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset,
 	return nil
 }
 
-func startPending(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, ns, defaultImage string) error {
+func startPending(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, ns, defaultImage, pullSecret string) error {
 	rows, err := db.Query(ctx,
 		`SELECT id, image_used, playbook, extra_vars::text
 		 FROM jobs WHERE status='pending' ORDER BY created_at LIMIT 10`)
@@ -77,7 +78,7 @@ func startPending(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clients
 		if imageUsed == "" {
 			imageUsed = defaultImage
 		}
-		if err := spawnJob(ctx, db, k8s, ns, jobID, imageUsed, playbook, extraVars); err != nil {
+		if err := spawnJob(ctx, db, k8s, ns, jobID, imageUsed, playbook, extraVars, pullSecret); err != nil {
 			log.Printf("spawn job %s: %v", jobID, err)
 		}
 	}
@@ -102,10 +103,15 @@ func syncRunning(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientse
 	return nil
 }
 
-func spawnJob(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, ns, jobID, imageUsed, playbook, extraVars string) error {
+func spawnJob(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, ns, jobID, imageUsed, playbook, extraVars, pullSecret string) error {
 	k8sName := "bosun-" + strings.ReplaceAll(jobID, "-", "")[:16]
 
 	i32 := func(v int32) *int32 { return &v }
+
+	var pullSecrets []corev1.LocalObjectReference
+	if pullSecret != "" {
+		pullSecrets = []corev1.LocalObjectReference{{Name: pullSecret}}
+	}
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -121,7 +127,8 @@ func spawnJob(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, 
 					Labels: map[string]string{"bosun/job-id": jobID},
 				},
 				Spec: corev1.PodSpec{
-					RestartPolicy: corev1.RestartPolicyNever,
+					RestartPolicy:    corev1.RestartPolicyNever,
+					ImagePullSecrets: pullSecrets,
 					Containers: []corev1.Container{
 						{
 							Name:  "runner",

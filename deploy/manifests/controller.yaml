@@ -14,6 +14,8 @@ spec:
         app: controller
     spec:
       serviceAccountName: bosun-controller
+      imagePullSecrets:
+      - name: ghcr-pull-secret
       containers:
       - name: controller
         image: ghcr.io/duchaineo1/controller:latest
@@ -33,4 +35,6 @@ spec:
         - name: RUNNER_NAMESPACE
           value: bosun
         - name: DEFAULT_RUNNER_IMAGE
-          value: ghcr.io/duchaineo1/runner:latest
+          value: ghcr.io/duchaineo1/bosun-runner:latest
+        - name: IMAGE_PULL_SECRET
+          value: ghcr-pull-secret
