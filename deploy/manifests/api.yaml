@@ -40,6 +40,11 @@ spec:
               key: jwt-secret
         - name: DEFAULT_RUNNER_IMAGE
           value: ghcr.io/duchaineo1/bosun-runner:latest
+        - name: CREDENTIALS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bosun-secrets
+              key: credentials-key
         readinessProbe:
           tcpSocket:
             port: 8080

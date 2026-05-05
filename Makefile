@@ -34,6 +34,9 @@ push:
 deploy-ns:
 	kubectl apply -f deploy/manifests/namespace.yaml
 
+gen-credentials-key:
+	@openssl rand -base64 32
+
 create-pull-secret:
 	kubectl create secret docker-registry ghcr-pull-secret \
 		--docker-server=ghcr.io \
@@ -65,4 +68,5 @@ tidy:
 	cd services/controller && go mod tidy
 
 .PHONY: dev dev-down build build-api build-controller build-runner build-ui \
-        push deploy deploy-ns create-pull-secret status logs-api logs-controller tidy
+        push deploy deploy-ns create-pull-secret gen-credentials-key \
+        status logs-api logs-controller tidy

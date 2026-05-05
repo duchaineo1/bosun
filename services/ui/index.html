@@ -102,6 +102,7 @@
     <h1>Bosun</h1>
     <a class="tab active" id="tab-templates" onclick="showTab('templates')">Templates</a>
     <a class="tab" id="tab-jobs" onclick="showTab('jobs')">Jobs</a>
+    <a class="tab" id="tab-credentials" onclick="showTab('credentials')">Credentials</a>
     <a class="text-muted" style="font-size:12px" onclick="logout()">Sign out</a>
   </nav>
   <main>
@@ -115,6 +116,20 @@
         <table>
           <thead><tr><th>Name</th><th>Source</th><th>Playbook</th><th></th></tr></thead>
           <tbody id="tpl-rows"><tr><td colspan="4" class="text-muted" style="padding:20px">Loading...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Credentials tab -->
+    <div id="view-credentials" class="hidden">
+      <div class="section-header">
+        <h2>Credentials</h2>
+        <button class="btn-primary btn-sm" onclick="openCreateCredential()">+ New Credential</button>
+      </div>
+      <div class="card">
+        <table>
+          <thead><tr><th>Name</th><th>Type</th><th>Created</th><th></th></tr></thead>
+          <tbody id="cred-rows"><tr><td colspan="4" class="text-muted" style="padding:20px">Loading...</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -157,6 +172,12 @@
         <p class="text-muted mt-2">If set, the runner clones this repo and runs the playbook relative to its root. Leave blank to use the image's bundled playbooks.</p>
       </div>
       <div class="field"><label>Git Ref (branch, tag)</label><input id="tpl-git-ref" placeholder="main"></div>
+      <div class="field">
+        <label>Git Credential</label>
+        <select id="tpl-credential">
+          <option value="">— None (public repo) —</option>
+        </select>
+      </div>
       <div class="field"><label>Playbook path</label><input id="tpl-playbook" placeholder="/playbooks/sample.yml"></div>
       <div class="field"><label>Extra Variables (JSON)</label><textarea id="tpl-vars" rows="4" placeholder='{"env": "prod"}'></textarea></div>
       <p id="tpl-err" class="err hidden"></p>
@@ -164,6 +185,33 @@
     <div class="modal-footer">
       <button class="btn-ghost" onclick="closeModal('modal-tpl')">Cancel</button>
       <button class="btn-primary" onclick="saveTemplate()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Create Credential Modal -->
+<div class="modal-backdrop hidden" id="modal-cred">
+  <div class="modal" style="width:480px">
+    <div class="modal-header">
+      <h3>New Credential</h3>
+      <button class="btn-ghost btn-sm" onclick="closeModal('modal-cred')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field"><label>Name *</label><input id="cred-name" placeholder="my-github-pat"></div>
+      <div class="field">
+        <label>Type</label>
+        <select id="cred-type"><option value="pat">Personal Access Token (PAT)</option></select>
+      </div>
+      <div class="field">
+        <label>Token *</label>
+        <input id="cred-token" type="password" placeholder="ghp_xxxxxxxxxxxx">
+        <p class="text-muted mt-2">Stored securely. Not retrievable after creation.</p>
+      </div>
+      <p id="cred-err" class="err hidden"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeModal('modal-cred')">Cancel</button>
+      <button class="btn-primary" onclick="saveCredential()">Save</button>
     </div>
   </div>
 </div>
@@ -224,16 +272,21 @@ function showApp() {
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
 function showTab(name) {
-  ['templates','jobs'].forEach(t => {
+  ['templates','jobs','credentials'].forEach(t => {
     document.getElementById('view-'+t).classList.toggle('hidden', t !== name);
     document.getElementById('tab-'+t).classList.toggle('active', t === name);
   });
   if (name === 'templates') loadTemplates();
   if (name === 'jobs') loadJobs();
+  if (name === 'credentials') loadCredentials();
 }
 
 // ── Templates ────────────────────────────────────────────────────────────────
 async function loadTemplates() {
+  // Keep credential cache warm for the dropdown
+  if (!credentialsCache.length) {
+    credentialsCache = await get('/credentials').catch(() => []);
+  }
   const tpls = await get('/templates');
   const tbody = document.getElementById('tpl-rows');
   if (!tpls.length) {
@@ -259,12 +312,14 @@ async function loadTemplates() {
 }
 
 function openCreateTemplate() {
+  refreshCredentialDropdown();
   document.getElementById('tpl-id').value = '';
   document.getElementById('tpl-name').value = '';
   document.getElementById('tpl-desc').value = '';
   document.getElementById('tpl-image').value = '';
   document.getElementById('tpl-git-url').value = '';
   document.getElementById('tpl-git-ref').value = 'main';
+  document.getElementById('tpl-credential').value = '';
   document.getElementById('tpl-playbook').value = '/playbooks/sample.yml';
   document.getElementById('tpl-vars').value = '{}';
   document.getElementById('modal-tpl-title').textContent = 'New Template';
@@ -273,12 +328,14 @@ function openCreateTemplate() {
 }
 
 function openEditTemplate(t) {
+  refreshCredentialDropdown();
   document.getElementById('tpl-id').value = t.id;
   document.getElementById('tpl-name').value = t.name;
   document.getElementById('tpl-desc').value = t.description;
   document.getElementById('tpl-image').value = t.image || '';
   document.getElementById('tpl-git-url').value = t.git_url || '';
   document.getElementById('tpl-git-ref').value = t.git_ref || 'main';
+  document.getElementById('tpl-credential').value = t.credential_id || '';
   document.getElementById('tpl-playbook').value = t.playbook;
   document.getElementById('tpl-vars').value = JSON.stringify(t.extra_vars, null, 2);
   document.getElementById('modal-tpl-title').textContent = 'Edit Template';
@@ -290,13 +347,13 @@ async function saveTemplate() {
   const id = val('tpl-id');
   let vars;
   try { vars = JSON.parse(val('tpl-vars') || '{}'); } catch { setErr('tpl-err', 'Extra vars is not valid JSON'); return; }
-  const gitURL = val('tpl-git-url');
   const body = {
     name: val('tpl-name'),
     description: val('tpl-desc'),
     image: val('tpl-image') || null,
-    git_url: gitURL || null,
+    git_url: val('tpl-git-url') || null,
     git_ref: val('tpl-git-ref') || 'main',
+    credential_id: val('tpl-credential') || null,
     playbook: val('tpl-playbook') || '/playbooks/sample.yml',
     extra_vars: vars,
   };
@@ -320,6 +377,59 @@ async function launch(id) {
     showTab('jobs');
     openLogs(job.id, job.status);
   } catch (e) { alert('Launch failed: ' + e.message); }
+}
+
+// ── Credentials ──────────────────────────────────────────────────────────────
+let credentialsCache = [];
+
+async function loadCredentials() {
+  credentialsCache = await get('/credentials');
+  const tbody = document.getElementById('cred-rows');
+  if (!credentialsCache.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-muted" style="padding:20px">No credentials yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = credentialsCache.map(c => `
+    <tr>
+      <td>${esc(c.name)}</td>
+      <td class="text-muted">${esc(c.type)}</td>
+      <td class="text-muted">${new Date(c.created_at).toLocaleString()}</td>
+      <td style="text-align:right">
+        <button class="btn-danger btn-sm" onclick="deleteCred('${c.id}','${esc(c.name)}')">Delete</button>
+      </td>
+    </tr>`).join('');
+  refreshCredentialDropdown();
+}
+
+function refreshCredentialDropdown() {
+  const sel = document.getElementById('tpl-credential');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— None (public repo) —</option>' +
+    credentialsCache.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  sel.value = cur;
+}
+
+async function deleteCred(id, name) {
+  if (!confirm(`Delete credential "${name}"?`)) return;
+  await del(`/credentials/${id}`);
+  loadCredentials();
+}
+
+function openCreateCredential() {
+  document.getElementById('cred-name').value = '';
+  document.getElementById('cred-token').value = '';
+  document.getElementById('cred-err').classList.add('hidden');
+  document.getElementById('modal-cred').classList.remove('hidden');
+}
+
+async function saveCredential() {
+  const body = { name: val('cred-name'), type: val('cred-type'), token: val('cred-token') };
+  if (!body.name || !body.token) { setErr('cred-err', 'Name and token are required'); return; }
+  try {
+    await post('/credentials', body);
+    closeModal('modal-cred');
+    loadCredentials();
+  } catch (e) { setErr('cred-err', e.message); }
 }
 
 // ── Jobs ─────────────────────────────────────────────────────────────────────

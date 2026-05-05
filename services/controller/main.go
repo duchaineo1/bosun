@@ -63,22 +63,35 @@ func reconcile(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset,
 
 func startPending(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, ns, defaultImage, pullSecret string) error {
 	rows, err := db.Query(ctx,
-		`SELECT id, image_used, playbook, extra_vars::text, COALESCE(git_url,''), COALESCE(git_ref,'')
-		 FROM jobs WHERE status='pending' ORDER BY created_at LIMIT 10`)
+		`SELECT j.id, j.image_used, j.playbook, j.extra_vars::text,
+		        COALESCE(j.git_url,''), COALESCE(j.git_ref,''),
+		        COALESCE(c.data->>'token','')
+		 FROM jobs j
+		 LEFT JOIN credentials c ON c.id = j.credential_id
+		 WHERE j.status='pending' ORDER BY j.created_at LIMIT 10`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var jobID, imageUsed, playbook, extraVars, gitURL, gitRef string
-		if err := rows.Scan(&jobID, &imageUsed, &playbook, &extraVars, &gitURL, &gitRef); err != nil {
+		var jobID, imageUsed, playbook, extraVars, gitURL, gitRef, gitToken string
+		if err := rows.Scan(&jobID, &imageUsed, &playbook, &extraVars, &gitURL, &gitRef, &gitToken); err != nil {
 			continue
 		}
 		if imageUsed == "" {
 			imageUsed = defaultImage
 		}
-		if err := spawnJob(ctx, db, k8s, ns, jobID, imageUsed, playbook, extraVars, gitURL, gitRef, pullSecret); err != nil {
+		if gitToken != "" {
+			plain, err := decryptToken(gitToken)
+			if err != nil {
+				log.Printf("job %s: credential decrypt failed: %v — skipping token", jobID, err)
+				gitToken = ""
+			} else {
+				gitToken = plain
+			}
+		}
+		if err := spawnJob(ctx, db, k8s, ns, jobID, imageUsed, playbook, extraVars, gitURL, gitRef, gitToken, pullSecret); err != nil {
 			log.Printf("spawn job %s: %v", jobID, err)
 		}
 	}
@@ -103,7 +116,7 @@ func syncRunning(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientse
 	return nil
 }
 
-func spawnJob(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, ns, jobID, imageUsed, playbook, extraVars, gitURL, gitRef, pullSecret string) error {
+func spawnJob(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, ns, jobID, imageUsed, playbook, extraVars, gitURL, gitRef, gitToken, pullSecret string) error {
 	k8sName := "bosun-" + strings.ReplaceAll(jobID, "-", "")[:16]
 
 	i32 := func(v int32) *int32 { return &v }
@@ -133,7 +146,7 @@ func spawnJob(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, 
 						{
 							Name:  "runner",
 							Image: imageUsed,
-							Env: buildEnv(jobID, playbook, extraVars, gitURL, gitRef),
+							Env: buildEnv(jobID, playbook, extraVars, gitURL, gitRef, gitToken),
 						},
 					},
 				},
@@ -163,7 +176,7 @@ func spawnJob(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, 
 	return nil
 }
 
-func buildEnv(jobID, playbook, extraVars, gitURL, gitRef string) []corev1.EnvVar {
+func buildEnv(jobID, playbook, extraVars, gitURL, gitRef, gitToken string) []corev1.EnvVar {
 	env := []corev1.EnvVar{
 		{Name: "JOB_ID", Value: jobID},
 		{Name: "PLAYBOOK", Value: playbook},
@@ -177,6 +190,9 @@ func buildEnv(jobID, playbook, extraVars, gitURL, gitRef string) []corev1.EnvVar
 			corev1.EnvVar{Name: "GIT_URL", Value: gitURL},
 			corev1.EnvVar{Name: "GIT_REF", Value: gitRef},
 		)
+		if gitToken != "" {
+			env = append(env, corev1.EnvVar{Name: "GIT_TOKEN", Value: gitToken})
+		}
 	}
 	return env
 }

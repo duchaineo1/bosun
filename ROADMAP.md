@@ -79,7 +79,7 @@ Legend: ✅ Done · 🚧 In Progress · 🔲 Planned · 💡 Stretch
 |---------|--------|-------|
 | Manual playbook (in runner image) | ✅ | Playbook path passed as env var |
 | Git repo as playbook source (public) | ✅ | Clone at job launch, playbook relative to repo root |
-| PAT auth (GitHub / GitLab / Bitbucket) | 🔲 | HTTPS clone with token |
+| PAT auth (GitHub / GitLab / Bitbucket) | ✅ | Token stored in credentials table, injected via git credential helper |
 | GitHub App auth | 🔲 | App installation token, no user PAT needed |
 | SSH key auth | 🔲 | Deploy key per repo |
 | Webhook-triggered sync | 🔲 | Push → auto-sync project → optional auto-launch |

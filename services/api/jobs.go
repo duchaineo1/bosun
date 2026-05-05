@@ -28,15 +28,16 @@ func (app *App) launchTemplate(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	var tpl struct {
-		Image     *string
-		Playbook  string
-		ExtraVars string
-		GitURL    *string
-		GitRef    string
+		Image        *string
+		Playbook     string
+		ExtraVars    string
+		GitURL       *string
+		GitRef       string
+		CredentialID *string
 	}
 	if err := app.db.QueryRow(r.Context(),
-		"SELECT image, playbook, extra_vars::text, git_url, git_ref FROM job_templates WHERE id=$1", id,
-	).Scan(&tpl.Image, &tpl.Playbook, &tpl.ExtraVars, &tpl.GitURL, &tpl.GitRef); err != nil {
+		"SELECT image, playbook, extra_vars::text, git_url, git_ref, credential_id FROM job_templates WHERE id=$1", id,
+	).Scan(&tpl.Image, &tpl.Playbook, &tpl.ExtraVars, &tpl.GitURL, &tpl.GitRef, &tpl.CredentialID); err != nil {
 		apiErr(w, "template not found", 404)
 		return
 	}
@@ -60,11 +61,11 @@ func (app *App) launchTemplate(w http.ResponseWriter, r *http.Request) {
 	var j Job
 	var ev string
 	err := app.db.QueryRow(r.Context(),
-		`INSERT INTO jobs (template_id, status, image_used, playbook, extra_vars, git_url, git_ref)
-		 VALUES ($1,'pending',$2,$3,$4::jsonb,$5,$6)
+		`INSERT INTO jobs (template_id, status, image_used, playbook, extra_vars, git_url, git_ref, credential_id)
+		 VALUES ($1,'pending',$2,$3,$4::jsonb,$5,$6,$7)
 		 RETURNING id, template_id, status, image_used, playbook, extra_vars::text,
 		           git_url, git_ref, k8s_job_name, started_at, finished_at, created_at`,
-		id, imageUsed, tpl.Playbook, extraVars, tpl.GitURL, tpl.GitRef,
+		id, imageUsed, tpl.Playbook, extraVars, tpl.GitURL, tpl.GitRef, tpl.CredentialID,
 	).Scan(&j.ID, &j.TemplateID, &j.Status, &j.ImageUsed, &j.Playbook, &ev,
 		&j.GitURL, &j.GitRef, &j.K8sJobName, &j.StartedAt, &j.FinishedAt, &j.CreatedAt)
 	if err != nil {

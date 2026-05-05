@@ -38,3 +38,8 @@ spec:
           value: ghcr.io/duchaineo1/bosun-runner:latest
         - name: IMAGE_PULL_SECRET
           value: ghcr-pull-secret
+        - name: CREDENTIALS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bosun-secrets
+              key: credentials-key

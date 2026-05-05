@@ -39,6 +39,10 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(app.requireAuth)
 
+		r.Get("/api/v1/credentials", app.listCredentials)
+		r.Post("/api/v1/credentials", app.createCredential)
+		r.Delete("/api/v1/credentials/{id}", app.deleteCredential)
+
 		r.Get("/api/v1/templates", app.listTemplates)
 		r.Post("/api/v1/templates", app.createTemplate)
 		r.Get("/api/v1/templates/{id}", app.getTemplate)

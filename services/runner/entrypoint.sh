@@ -16,6 +16,11 @@ if [[ -n "$GIT_URL" ]]; then
   echo "Playbook: $PLAYBOOK (relative to repo root)"
   echo "=============================="
   echo ""
+  if [[ -n "$GIT_TOKEN" ]]; then
+    export GIT_TOKEN
+    git config --global credential.helper \
+      '!f() { echo username=x-access-token; echo "password=$GIT_TOKEN"; }; f'
+  fi
   git clone --depth 1 --branch "$GIT_REF" "$GIT_URL" /workspace
   cd /workspace
 else
