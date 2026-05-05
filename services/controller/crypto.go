@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -17,7 +18,44 @@ func decryptToken(stored string) (string, error) {
 	case strings.HasPrefix(stored, "aes256gcm:"):
 		return decryptAESGCM(stored[len("aes256gcm:"):])
 	default:
-		return "", fmt.Errorf("unsupported credential format: %q", stored[:min(len(stored), 16)])
+		preview := stored
+		if len(preview) > 16 {
+			preview = preview[:16]
+		}
+		return "", fmt.Errorf("unsupported credential format: %q", preview)
+	}
+}
+
+// resolveGitToken returns a ready-to-use git token from raw credential fields.
+// For pat: decrypts the stored token.
+// For github_app: decrypts the private key then exchanges it for an installation token.
+// To add vault support, handle the "vault:" prefix inside decryptToken.
+func resolveGitToken(credType, credData string) (string, error) {
+	switch credType {
+	case "pat":
+		var d struct {
+			Token string `json:"token"`
+		}
+		if err := json.Unmarshal([]byte(credData), &d); err != nil {
+			return "", fmt.Errorf("parse pat data: %w", err)
+		}
+		return decryptToken(d.Token)
+	case "github_app":
+		var d struct {
+			AppID          string `json:"app_id"`
+			InstallationID string `json:"installation_id"`
+			PrivateKey     string `json:"private_key"`
+		}
+		if err := json.Unmarshal([]byte(credData), &d); err != nil {
+			return "", fmt.Errorf("parse github_app data: %w", err)
+		}
+		pk, err := decryptToken(d.PrivateKey)
+		if err != nil {
+			return "", fmt.Errorf("decrypt private key: %w", err)
+		}
+		return generateGitHubAppToken(d.AppID, d.InstallationID, pk)
+	default:
+		return "", fmt.Errorf("unknown credential type: %q", credType)
 	}
 }
 
@@ -63,9 +101,3 @@ func loadCredentialsKey() ([]byte, error) {
 	return key, nil
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

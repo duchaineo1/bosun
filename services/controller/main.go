@@ -65,7 +65,7 @@ func startPending(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clients
 	rows, err := db.Query(ctx,
 		`SELECT j.id, j.image_used, j.playbook, j.extra_vars::text,
 		        COALESCE(j.git_url,''), COALESCE(j.git_ref,''),
-		        COALESCE(c.data->>'token','')
+		        COALESCE(c.type,''), COALESCE(c.data::text,'{}')
 		 FROM jobs j
 		 LEFT JOIN credentials c ON c.id = j.credential_id
 		 WHERE j.status='pending' ORDER BY j.created_at LIMIT 10`)
@@ -75,20 +75,19 @@ func startPending(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clients
 	defer rows.Close()
 
 	for rows.Next() {
-		var jobID, imageUsed, playbook, extraVars, gitURL, gitRef, gitToken string
-		if err := rows.Scan(&jobID, &imageUsed, &playbook, &extraVars, &gitURL, &gitRef, &gitToken); err != nil {
+		var jobID, imageUsed, playbook, extraVars, gitURL, gitRef, credType, credData string
+		if err := rows.Scan(&jobID, &imageUsed, &playbook, &extraVars, &gitURL, &gitRef, &credType, &credData); err != nil {
 			continue
 		}
 		if imageUsed == "" {
 			imageUsed = defaultImage
 		}
-		if gitToken != "" {
-			plain, err := decryptToken(gitToken)
+		var gitToken string
+		if credType != "" && gitURL != "" {
+			var err error
+			gitToken, err = resolveGitToken(credType, credData)
 			if err != nil {
-				log.Printf("job %s: credential decrypt failed: %v — skipping token", jobID, err)
-				gitToken = ""
-			} else {
-				gitToken = plain
+				log.Printf("job %s: credential resolve failed: %v — skipping token", jobID, err)
 			}
 		}
 		if err := spawnJob(ctx, db, k8s, ns, jobID, imageUsed, playbook, extraVars, gitURL, gitRef, gitToken, pullSecret); err != nil {

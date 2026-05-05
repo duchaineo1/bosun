@@ -36,30 +36,59 @@ func (app *App) listCredentials(w http.ResponseWriter, r *http.Request) {
 
 func (app *App) createCredential(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name  string `json:"name"`
-		Type  string `json:"type"`
-		Token string `json:"token"`
+		Name           string `json:"name"`
+		Type           string `json:"type"`
+		Token          string `json:"token"`           // pat
+		AppID          string `json:"app_id"`          // github_app
+		InstallationID string `json:"installation_id"` // github_app
+		PrivateKey     string `json:"private_key"`     // github_app
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.Token == "" {
-		apiErr(w, "name and token are required", 400)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+		apiErr(w, "name is required", 400)
 		return
 	}
 	if body.Type == "" {
 		body.Type = "pat"
 	}
 
-	encrypted, err := encryptToken(body.Token)
-	if err != nil {
-		apiErr(w, "encryption error: "+err.Error(), 500)
+	var rawData []byte
+	switch body.Type {
+	case "pat":
+		if body.Token == "" {
+			apiErr(w, "token is required for pat credentials", 400)
+			return
+		}
+		encrypted, err := encryptToken(body.Token)
+		if err != nil {
+			apiErr(w, "encryption error: "+err.Error(), 500)
+			return
+		}
+		rawData, _ = json.Marshal(map[string]string{"token": encrypted})
+	case "github_app":
+		if body.AppID == "" || body.InstallationID == "" || body.PrivateKey == "" {
+			apiErr(w, "app_id, installation_id, and private_key are required for github_app credentials", 400)
+			return
+		}
+		encryptedKey, err := encryptToken(body.PrivateKey)
+		if err != nil {
+			apiErr(w, "encryption error: "+err.Error(), 500)
+			return
+		}
+		rawData, _ = json.Marshal(map[string]string{
+			"app_id":          body.AppID,
+			"installation_id": body.InstallationID,
+			"private_key":     encryptedKey,
+		})
+	default:
+		apiErr(w, "unsupported credential type: "+body.Type, 400)
 		return
 	}
-	data, _ := json.Marshal(map[string]string{"token": encrypted})
 
 	var c Credential
-	if err = app.db.QueryRow(r.Context(),
+	if err := app.db.QueryRow(r.Context(),
 		`INSERT INTO credentials (name, type, data) VALUES ($1,$2,$3::jsonb)
 		 RETURNING id, name, type, created_at`,
-		body.Name, body.Type, string(data),
+		body.Name, body.Type, string(rawData),
 	).Scan(&c.ID, &c.Name, &c.Type, &c.CreatedAt); err != nil {
 		apiErr(w, "db error", 500)
 		return

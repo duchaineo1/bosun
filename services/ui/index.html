@@ -200,12 +200,30 @@
       <div class="field"><label>Name *</label><input id="cred-name" placeholder="my-github-pat"></div>
       <div class="field">
         <label>Type</label>
-        <select id="cred-type"><option value="pat">Personal Access Token (PAT)</option></select>
+        <select id="cred-type" onchange="onCredTypeChange()">
+          <option value="pat">Personal Access Token (PAT)</option>
+          <option value="github_app">GitHub App</option>
+        </select>
       </div>
-      <div class="field">
-        <label>Token *</label>
-        <input id="cred-token" type="password" placeholder="ghp_xxxxxxxxxxxx">
-        <p class="text-muted mt-2">Stored securely. Not retrievable after creation.</p>
+      <!-- PAT fields -->
+      <div id="cred-fields-pat">
+        <div class="field">
+          <label>Token *</label>
+          <input id="cred-token" type="password" placeholder="ghp_xxxxxxxxxxxx">
+          <p class="text-muted mt-2">Stored encrypted. Not retrievable after creation.</p>
+        </div>
+      </div>
+      <!-- GitHub App fields -->
+      <div id="cred-fields-github_app" class="hidden">
+        <div class="field"><label>App ID *</label><input id="cred-app-id" placeholder="123456"></div>
+        <div class="field"><label>Installation ID *</label><input id="cred-installation-id" placeholder="78901234">
+          <p class="text-muted mt-2">Found under your org/repo → Settings → GitHub Apps → Configure → Installation ID in the URL.</p>
+        </div>
+        <div class="field">
+          <label>Private Key (PEM) *</label>
+          <textarea id="cred-private-key" rows="6" placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----"></textarea>
+          <p class="text-muted mt-2">Generated in your GitHub App settings. Stored encrypted.</p>
+        </div>
       </div>
       <p id="cred-err" class="err hidden"></p>
     </div>
@@ -415,16 +433,39 @@ async function deleteCred(id, name) {
   loadCredentials();
 }
 
+function onCredTypeChange() {
+  const type = val('cred-type');
+  document.getElementById('cred-fields-pat').classList.toggle('hidden', type !== 'pat');
+  document.getElementById('cred-fields-github_app').classList.toggle('hidden', type !== 'github_app');
+}
+
 function openCreateCredential() {
   document.getElementById('cred-name').value = '';
+  document.getElementById('cred-type').value = 'pat';
   document.getElementById('cred-token').value = '';
+  document.getElementById('cred-app-id').value = '';
+  document.getElementById('cred-installation-id').value = '';
+  document.getElementById('cred-private-key').value = '';
   document.getElementById('cred-err').classList.add('hidden');
+  onCredTypeChange();
   document.getElementById('modal-cred').classList.remove('hidden');
 }
 
 async function saveCredential() {
-  const body = { name: val('cred-name'), type: val('cred-type'), token: val('cred-token') };
-  if (!body.name || !body.token) { setErr('cred-err', 'Name and token are required'); return; }
+  const type = val('cred-type');
+  const body = { name: val('cred-name'), type };
+  if (!body.name) { setErr('cred-err', 'Name is required'); return; }
+  if (type === 'pat') {
+    body.token = val('cred-token');
+    if (!body.token) { setErr('cred-err', 'Token is required'); return; }
+  } else if (type === 'github_app') {
+    body.app_id = val('cred-app-id');
+    body.installation_id = val('cred-installation-id');
+    body.private_key = document.getElementById('cred-private-key').value.trim();
+    if (!body.app_id || !body.installation_id || !body.private_key) {
+      setErr('cred-err', 'App ID, Installation ID, and Private Key are required'); return;
+    }
+  }
   try {
     await post('/credentials', body);
     closeModal('modal-cred');
