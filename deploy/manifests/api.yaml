@@ -17,12 +17,10 @@ spec:
       - name: ghcr-pull-secret
       containers:
       - name: api
-        image: ghcr.io/duchaineo1/api:latest
+        image: ghcr.io/duchaineo1/bosun-api:latest
         ports:
         - containerPort: 8080
         env:
-        - name: DATABASE_URL
-          value: postgres://$(DB_USER):$(DB_PASSWORD)@postgres:5432/awxng
         - name: DB_USER
           valueFrom:
             secretKeyRef:
@@ -33,19 +31,18 @@ spec:
             secretKeyRef:
               name: bosun-secrets
               key: db-password
+        - name: DATABASE_URL
+          value: postgres://$(DB_USER):$(DB_PASSWORD)@postgres:5432/awxng
         - name: JWT_SECRET
           valueFrom:
             secretKeyRef:
               name: bosun-secrets
               key: jwt-secret
         - name: DEFAULT_RUNNER_IMAGE
-          value: ghcr.io/duchaineo1/runner:latest
+          value: ghcr.io/duchaineo1/bosun-runner:latest
         readinessProbe:
-          httpGet:
-            path: /api/v1/setup
+          tcpSocket:
             port: 8080
-          # 409 = already set up, that's fine — pod is ready
-          # This just ensures the process is up
           initialDelaySeconds: 3
           periodSeconds: 5
 ---

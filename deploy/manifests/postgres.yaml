@@ -47,6 +47,14 @@ data:
     );
 
     CREATE INDEX idx_job_logs_job ON job_logs(job_id, line_num);
+  002_git_source.sql: |
+    ALTER TABLE job_templates
+        ADD COLUMN IF NOT EXISTS git_url TEXT,
+        ADD COLUMN IF NOT EXISTS git_ref TEXT NOT NULL DEFAULT 'main';
+
+    ALTER TABLE jobs
+        ADD COLUMN IF NOT EXISTS git_url TEXT,
+        ADD COLUMN IF NOT EXISTS git_ref TEXT;
 ---
 apiVersion: v1
 kind: Service

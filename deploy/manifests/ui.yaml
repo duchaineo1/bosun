@@ -17,7 +17,7 @@ spec:
       - name: ghcr-pull-secret
       containers:
       - name: ui
-        image: ghcr.io/duchaineo1/ui:latest
+        image: ghcr.io/duchaineo1/bosun-ui:latest
         ports:
         - containerPort: 80
 ---

@@ -10,25 +10,25 @@ dev-down:
 
 # ── Build images ─────────────────────────────────────────────────────────────
 build-api:
-	cd services/api && go mod tidy && docker build -t $(REGISTRY)/api:$(TAG) .
+	cd services/api && go mod tidy && docker build -t $(REGISTRY)/bosun-api:$(TAG) .
 
 build-controller:
-	cd services/controller && go mod tidy && docker build -t $(REGISTRY)/controller:$(TAG) .
+	cd services/controller && go mod tidy && docker build -t $(REGISTRY)/bosun-controller:$(TAG) .
 
 build-runner:
-	docker build -t $(REGISTRY)/runner:$(TAG) services/runner
+	docker build -t $(REGISTRY)/bosun-runner:$(TAG) services/runner
 
 build-ui:
-	docker build -t $(REGISTRY)/ui:$(TAG) services/ui
+	docker build -t $(REGISTRY)/bosun-ui:$(TAG) services/ui
 
 build: build-api build-controller build-runner build-ui
 
 # ── Push images ───────────────────────────────────────────────────────────────
 push:
-	docker push $(REGISTRY)/api:$(TAG)
-	docker push $(REGISTRY)/controller:$(TAG)
-	docker push $(REGISTRY)/runner:$(TAG)
-	docker push $(REGISTRY)/ui:$(TAG)
+	docker push $(REGISTRY)/bosun-api:$(TAG)
+	docker push $(REGISTRY)/bosun-controller:$(TAG)
+	docker push $(REGISTRY)/bosun-runner:$(TAG)
+	docker push $(REGISTRY)/bosun-ui:$(TAG)
 
 # ── Kubernetes ────────────────────────────────────────────────────────────────
 deploy-ns:

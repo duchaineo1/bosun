@@ -15,13 +15,15 @@ type Template struct {
 	Image       *string         `json:"image"`
 	Playbook    string          `json:"playbook"`
 	ExtraVars   json.RawMessage `json:"extra_vars"`
+	GitURL      *string         `json:"git_url"`
+	GitRef      string          `json:"git_ref"`
 	CreatedAt   time.Time       `json:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
 func (app *App) listTemplates(w http.ResponseWriter, r *http.Request) {
 	rows, err := app.db.Query(r.Context(),
-		`SELECT id, name, description, image, playbook, extra_vars::text, created_at, updated_at
+		`SELECT id, name, description, image, playbook, extra_vars::text, git_url, git_ref, created_at, updated_at
 		 FROM job_templates ORDER BY created_at DESC`)
 	if err != nil {
 		apiErr(w, "db error", 500)
@@ -33,7 +35,7 @@ func (app *App) listTemplates(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var t Template
 		var ev string
-		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.Image, &t.Playbook, &ev, &t.CreatedAt, &t.UpdatedAt); err == nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.Image, &t.Playbook, &ev, &t.GitURL, &t.GitRef, &t.CreatedAt, &t.UpdatedAt); err == nil {
 			t.ExtraVars = json.RawMessage(ev)
 			out = append(out, t)
 		}
@@ -48,6 +50,8 @@ func (app *App) createTemplate(w http.ResponseWriter, r *http.Request) {
 		Image       *string         `json:"image"`
 		Playbook    string          `json:"playbook"`
 		ExtraVars   json.RawMessage `json:"extra_vars"`
+		GitURL      *string         `json:"git_url"`
+		GitRef      string          `json:"git_ref"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
 		apiErr(w, "name is required", 400)
@@ -59,15 +63,18 @@ func (app *App) createTemplate(w http.ResponseWriter, r *http.Request) {
 	if len(body.ExtraVars) == 0 {
 		body.ExtraVars = json.RawMessage("{}")
 	}
+	if body.GitRef == "" {
+		body.GitRef = "main"
+	}
 
 	var t Template
 	var ev string
 	err := app.db.QueryRow(r.Context(),
-		`INSERT INTO job_templates (name, description, image, playbook, extra_vars)
-		 VALUES ($1,$2,$3,$4,$5::jsonb)
-		 RETURNING id, name, description, image, playbook, extra_vars::text, created_at, updated_at`,
-		body.Name, body.Description, body.Image, body.Playbook, string(body.ExtraVars),
-	).Scan(&t.ID, &t.Name, &t.Description, &t.Image, &t.Playbook, &ev, &t.CreatedAt, &t.UpdatedAt)
+		`INSERT INTO job_templates (name, description, image, playbook, extra_vars, git_url, git_ref)
+		 VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7)
+		 RETURNING id, name, description, image, playbook, extra_vars::text, git_url, git_ref, created_at, updated_at`,
+		body.Name, body.Description, body.Image, body.Playbook, string(body.ExtraVars), body.GitURL, body.GitRef,
+	).Scan(&t.ID, &t.Name, &t.Description, &t.Image, &t.Playbook, &ev, &t.GitURL, &t.GitRef, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		apiErr(w, "db error", 500)
 		return
@@ -81,9 +88,9 @@ func (app *App) getTemplate(w http.ResponseWriter, r *http.Request) {
 	var t Template
 	var ev string
 	err := app.db.QueryRow(r.Context(),
-		`SELECT id, name, description, image, playbook, extra_vars::text, created_at, updated_at
+		`SELECT id, name, description, image, playbook, extra_vars::text, git_url, git_ref, created_at, updated_at
 		 FROM job_templates WHERE id=$1`, chi.URLParam(r, "id"),
-	).Scan(&t.ID, &t.Name, &t.Description, &t.Image, &t.Playbook, &ev, &t.CreatedAt, &t.UpdatedAt)
+	).Scan(&t.ID, &t.Name, &t.Description, &t.Image, &t.Playbook, &ev, &t.GitURL, &t.GitRef, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		apiErr(w, "not found", 404)
 		return
@@ -99,6 +106,8 @@ func (app *App) updateTemplate(w http.ResponseWriter, r *http.Request) {
 		Image       *string         `json:"image"`
 		Playbook    string          `json:"playbook"`
 		ExtraVars   json.RawMessage `json:"extra_vars"`
+		GitURL      *string         `json:"git_url"`
+		GitRef      string          `json:"git_ref"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apiErr(w, "bad request", 400)
@@ -107,16 +116,19 @@ func (app *App) updateTemplate(w http.ResponseWriter, r *http.Request) {
 	if len(body.ExtraVars) == 0 {
 		body.ExtraVars = json.RawMessage("{}")
 	}
+	if body.GitRef == "" {
+		body.GitRef = "main"
+	}
 
 	var t Template
 	var ev string
 	err := app.db.QueryRow(r.Context(),
 		`UPDATE job_templates
-		 SET name=$2, description=$3, image=$4, playbook=$5, extra_vars=$6::jsonb, updated_at=NOW()
+		 SET name=$2, description=$3, image=$4, playbook=$5, extra_vars=$6::jsonb, git_url=$7, git_ref=$8, updated_at=NOW()
 		 WHERE id=$1
-		 RETURNING id, name, description, image, playbook, extra_vars::text, created_at, updated_at`,
-		chi.URLParam(r, "id"), body.Name, body.Description, body.Image, body.Playbook, string(body.ExtraVars),
-	).Scan(&t.ID, &t.Name, &t.Description, &t.Image, &t.Playbook, &ev, &t.CreatedAt, &t.UpdatedAt)
+		 RETURNING id, name, description, image, playbook, extra_vars::text, git_url, git_ref, created_at, updated_at`,
+		chi.URLParam(r, "id"), body.Name, body.Description, body.Image, body.Playbook, string(body.ExtraVars), body.GitURL, body.GitRef,
+	).Scan(&t.ID, &t.Name, &t.Description, &t.Image, &t.Playbook, &ev, &t.GitURL, &t.GitRef, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		apiErr(w, "not found", 404)
 		return

@@ -113,7 +113,7 @@
       </div>
       <div class="card">
         <table>
-          <thead><tr><th>Name</th><th>Image</th><th>Playbook</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Source</th><th>Playbook</th><th></th></tr></thead>
           <tbody id="tpl-rows"><tr><td colspan="4" class="text-muted" style="padding:20px">Loading...</td></tr></tbody>
         </table>
       </div>
@@ -151,7 +151,13 @@
         <input id="tpl-image" placeholder="Leave blank to use default runner image">
         <p class="text-muted mt-2">Override the default runner image (like AWX Execution Environments). The container must honour the PLAYBOOK and EXTRA_VARS env vars.</p>
       </div>
-      <div class="field"><label>Playbook path (inside image)</label><input id="tpl-playbook" placeholder="/playbooks/sample.yml"></div>
+      <div class="field">
+        <label>Git Repository URL</label>
+        <input id="tpl-git-url" placeholder="https://github.com/org/repo.git">
+        <p class="text-muted mt-2">If set, the runner clones this repo and runs the playbook relative to its root. Leave blank to use the image's bundled playbooks.</p>
+      </div>
+      <div class="field"><label>Git Ref (branch, tag)</label><input id="tpl-git-ref" placeholder="main"></div>
+      <div class="field"><label>Playbook path</label><input id="tpl-playbook" placeholder="/playbooks/sample.yml"></div>
       <div class="field"><label>Extra Variables (JSON)</label><textarea id="tpl-vars" rows="4" placeholder='{"env": "prod"}'></textarea></div>
       <p id="tpl-err" class="err hidden"></p>
     </div>
@@ -234,17 +240,22 @@ async function loadTemplates() {
     tbody.innerHTML = '<tr><td colspan="4" class="text-muted" style="padding:20px">No templates yet. Create one to get started.</td></tr>';
     return;
   }
-  tbody.innerHTML = tpls.map(t => `
+  tbody.innerHTML = tpls.map(t => {
+    const source = t.git_url
+      ? `<span style="color:#38bdf8;font-size:11px">git</span> <span class="text-muted" style="font-size:11px">${esc(t.git_url)} @ ${esc(t.git_ref||'main')}</span>`
+      : (t.image ? esc(t.image) : '<i style="color:#64748b">default runner</i>');
+    return `
     <tr>
       <td>${esc(t.name)}<br><span class="text-muted">${esc(t.description)}</span></td>
-      <td class="text-muted">${t.image ? esc(t.image) : '<i>default runner</i>'}</td>
+      <td class="text-muted">${source}</td>
       <td class="text-muted">${esc(t.playbook)}</td>
       <td style="text-align:right;white-space:nowrap">
         <button class="btn-success btn-sm" onclick="launch('${t.id}')">▶ Launch</button>
         <button class="btn-ghost btn-sm" onclick="openEditTemplate(${JSON.stringify(t).replace(/"/g,'&quot;')})">Edit</button>
         <button class="btn-danger btn-sm" onclick="deleteTpl('${t.id}')">Delete</button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
 
 function openCreateTemplate() {
@@ -252,6 +263,8 @@ function openCreateTemplate() {
   document.getElementById('tpl-name').value = '';
   document.getElementById('tpl-desc').value = '';
   document.getElementById('tpl-image').value = '';
+  document.getElementById('tpl-git-url').value = '';
+  document.getElementById('tpl-git-ref').value = 'main';
   document.getElementById('tpl-playbook').value = '/playbooks/sample.yml';
   document.getElementById('tpl-vars').value = '{}';
   document.getElementById('modal-tpl-title').textContent = 'New Template';
@@ -264,6 +277,8 @@ function openEditTemplate(t) {
   document.getElementById('tpl-name').value = t.name;
   document.getElementById('tpl-desc').value = t.description;
   document.getElementById('tpl-image').value = t.image || '';
+  document.getElementById('tpl-git-url').value = t.git_url || '';
+  document.getElementById('tpl-git-ref').value = t.git_ref || 'main';
   document.getElementById('tpl-playbook').value = t.playbook;
   document.getElementById('tpl-vars').value = JSON.stringify(t.extra_vars, null, 2);
   document.getElementById('modal-tpl-title').textContent = 'Edit Template';
@@ -275,10 +290,13 @@ async function saveTemplate() {
   const id = val('tpl-id');
   let vars;
   try { vars = JSON.parse(val('tpl-vars') || '{}'); } catch { setErr('tpl-err', 'Extra vars is not valid JSON'); return; }
+  const gitURL = val('tpl-git-url');
   const body = {
     name: val('tpl-name'),
     description: val('tpl-desc'),
     image: val('tpl-image') || null,
+    git_url: gitURL || null,
+    git_ref: val('tpl-git-ref') || 'main',
     playbook: val('tpl-playbook') || '/playbooks/sample.yml',
     extra_vars: vars,
   };

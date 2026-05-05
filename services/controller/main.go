@@ -63,7 +63,7 @@ func reconcile(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset,
 
 func startPending(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, ns, defaultImage, pullSecret string) error {
 	rows, err := db.Query(ctx,
-		`SELECT id, image_used, playbook, extra_vars::text
+		`SELECT id, image_used, playbook, extra_vars::text, COALESCE(git_url,''), COALESCE(git_ref,'')
 		 FROM jobs WHERE status='pending' ORDER BY created_at LIMIT 10`)
 	if err != nil {
 		return err
@@ -71,14 +71,14 @@ func startPending(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clients
 	defer rows.Close()
 
 	for rows.Next() {
-		var jobID, imageUsed, playbook, extraVars string
-		if err := rows.Scan(&jobID, &imageUsed, &playbook, &extraVars); err != nil {
+		var jobID, imageUsed, playbook, extraVars, gitURL, gitRef string
+		if err := rows.Scan(&jobID, &imageUsed, &playbook, &extraVars, &gitURL, &gitRef); err != nil {
 			continue
 		}
 		if imageUsed == "" {
 			imageUsed = defaultImage
 		}
-		if err := spawnJob(ctx, db, k8s, ns, jobID, imageUsed, playbook, extraVars, pullSecret); err != nil {
+		if err := spawnJob(ctx, db, k8s, ns, jobID, imageUsed, playbook, extraVars, gitURL, gitRef, pullSecret); err != nil {
 			log.Printf("spawn job %s: %v", jobID, err)
 		}
 	}
@@ -103,7 +103,7 @@ func syncRunning(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientse
 	return nil
 }
 
-func spawnJob(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, ns, jobID, imageUsed, playbook, extraVars, pullSecret string) error {
+func spawnJob(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, ns, jobID, imageUsed, playbook, extraVars, gitURL, gitRef, pullSecret string) error {
 	k8sName := "bosun-" + strings.ReplaceAll(jobID, "-", "")[:16]
 
 	i32 := func(v int32) *int32 { return &v }
@@ -133,11 +133,7 @@ func spawnJob(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, 
 						{
 							Name:  "runner",
 							Image: imageUsed,
-							Env: []corev1.EnvVar{
-								{Name: "JOB_ID", Value: jobID},
-								{Name: "PLAYBOOK", Value: playbook},
-								{Name: "EXTRA_VARS", Value: extraVars},
-							},
+							Env: buildEnv(jobID, playbook, extraVars, gitURL, gitRef),
 						},
 					},
 				},
@@ -165,6 +161,24 @@ func spawnJob(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, 
 
 	log.Printf("spawned job %s → k8s/%s  image=%s", jobID, k8sName, imageUsed)
 	return nil
+}
+
+func buildEnv(jobID, playbook, extraVars, gitURL, gitRef string) []corev1.EnvVar {
+	env := []corev1.EnvVar{
+		{Name: "JOB_ID", Value: jobID},
+		{Name: "PLAYBOOK", Value: playbook},
+		{Name: "EXTRA_VARS", Value: extraVars},
+	}
+	if gitURL != "" {
+		if gitRef == "" {
+			gitRef = "main"
+		}
+		env = append(env,
+			corev1.EnvVar{Name: "GIT_URL", Value: gitURL},
+			corev1.EnvVar{Name: "GIT_REF", Value: gitRef},
+		)
+	}
+	return env
 }
 
 func streamLogs(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, ns, jobID, k8sName string) {

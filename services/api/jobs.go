@@ -16,6 +16,8 @@ type Job struct {
 	ImageUsed  string          `json:"image_used"`
 	Playbook   string          `json:"playbook"`
 	ExtraVars  json.RawMessage `json:"extra_vars"`
+	GitURL     *string         `json:"git_url,omitempty"`
+	GitRef     *string         `json:"git_ref,omitempty"`
 	K8sJobName *string         `json:"k8s_job_name,omitempty"`
 	StartedAt  *time.Time      `json:"started_at,omitempty"`
 	FinishedAt *time.Time      `json:"finished_at,omitempty"`
@@ -29,10 +31,12 @@ func (app *App) launchTemplate(w http.ResponseWriter, r *http.Request) {
 		Image     *string
 		Playbook  string
 		ExtraVars string
+		GitURL    *string
+		GitRef    string
 	}
 	if err := app.db.QueryRow(r.Context(),
-		"SELECT image, playbook, extra_vars::text FROM job_templates WHERE id=$1", id,
-	).Scan(&tpl.Image, &tpl.Playbook, &tpl.ExtraVars); err != nil {
+		"SELECT image, playbook, extra_vars::text, git_url, git_ref FROM job_templates WHERE id=$1", id,
+	).Scan(&tpl.Image, &tpl.Playbook, &tpl.ExtraVars, &tpl.GitURL, &tpl.GitRef); err != nil {
 		apiErr(w, "template not found", 404)
 		return
 	}
@@ -48,7 +52,7 @@ func (app *App) launchTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// image precedence: template.image > DEFAULT_RUNNER_IMAGE env var
-	imageUsed := envOr("DEFAULT_RUNNER_IMAGE", "ghcr.io/duchaineo1/runner:latest")
+	imageUsed := envOr("DEFAULT_RUNNER_IMAGE", "ghcr.io/duchaineo1/bosun-runner:latest")
 	if tpl.Image != nil && *tpl.Image != "" {
 		imageUsed = *tpl.Image
 	}
@@ -56,13 +60,13 @@ func (app *App) launchTemplate(w http.ResponseWriter, r *http.Request) {
 	var j Job
 	var ev string
 	err := app.db.QueryRow(r.Context(),
-		`INSERT INTO jobs (template_id, status, image_used, playbook, extra_vars)
-		 VALUES ($1,'pending',$2,$3,$4::jsonb)
+		`INSERT INTO jobs (template_id, status, image_used, playbook, extra_vars, git_url, git_ref)
+		 VALUES ($1,'pending',$2,$3,$4::jsonb,$5,$6)
 		 RETURNING id, template_id, status, image_used, playbook, extra_vars::text,
-		           k8s_job_name, started_at, finished_at, created_at`,
-		id, imageUsed, tpl.Playbook, extraVars,
+		           git_url, git_ref, k8s_job_name, started_at, finished_at, created_at`,
+		id, imageUsed, tpl.Playbook, extraVars, tpl.GitURL, tpl.GitRef,
 	).Scan(&j.ID, &j.TemplateID, &j.Status, &j.ImageUsed, &j.Playbook, &ev,
-		&j.K8sJobName, &j.StartedAt, &j.FinishedAt, &j.CreatedAt)
+		&j.GitURL, &j.GitRef, &j.K8sJobName, &j.StartedAt, &j.FinishedAt, &j.CreatedAt)
 	if err != nil {
 		apiErr(w, "db error", 500)
 		return
@@ -76,13 +80,13 @@ func (app *App) listJobs(w http.ResponseWriter, r *http.Request) {
 	templateID := r.URL.Query().Get("template_id")
 
 	query := `SELECT id, template_id, status, image_used, playbook, extra_vars::text,
-	                 k8s_job_name, started_at, finished_at, created_at
+	                 git_url, git_ref, k8s_job_name, started_at, finished_at, created_at
 	          FROM jobs ORDER BY created_at DESC LIMIT 100`
 	args := []any{}
 
 	if templateID != "" {
 		query = `SELECT id, template_id, status, image_used, playbook, extra_vars::text,
-		                k8s_job_name, started_at, finished_at, created_at
+		                git_url, git_ref, k8s_job_name, started_at, finished_at, created_at
 		         FROM jobs WHERE template_id=$1 ORDER BY created_at DESC LIMIT 100`
 		args = append(args, templateID)
 	}
@@ -99,7 +103,7 @@ func (app *App) listJobs(w http.ResponseWriter, r *http.Request) {
 		var j Job
 		var ev string
 		if err := rows.Scan(&j.ID, &j.TemplateID, &j.Status, &j.ImageUsed, &j.Playbook, &ev,
-			&j.K8sJobName, &j.StartedAt, &j.FinishedAt, &j.CreatedAt); err == nil {
+			&j.GitURL, &j.GitRef, &j.K8sJobName, &j.StartedAt, &j.FinishedAt, &j.CreatedAt); err == nil {
 			j.ExtraVars = json.RawMessage(ev)
 			out = append(out, j)
 		}
@@ -112,10 +116,10 @@ func (app *App) getJob(w http.ResponseWriter, r *http.Request) {
 	var ev string
 	err := app.db.QueryRow(r.Context(),
 		`SELECT id, template_id, status, image_used, playbook, extra_vars::text,
-		        k8s_job_name, started_at, finished_at, created_at
+		        git_url, git_ref, k8s_job_name, started_at, finished_at, created_at
 		 FROM jobs WHERE id=$1`, chi.URLParam(r, "id"),
 	).Scan(&j.ID, &j.TemplateID, &j.Status, &j.ImageUsed, &j.Playbook, &ev,
-		&j.K8sJobName, &j.StartedAt, &j.FinishedAt, &j.CreatedAt)
+		&j.GitURL, &j.GitRef, &j.K8sJobName, &j.StartedAt, &j.FinishedAt, &j.CreatedAt)
 	if err != nil {
 		apiErr(w, "not found", 404)
 		return
