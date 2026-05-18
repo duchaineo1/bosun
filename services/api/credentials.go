@@ -41,7 +41,8 @@ func (app *App) createCredential(w http.ResponseWriter, r *http.Request) {
 		Token          string `json:"token"`           // pat
 		AppID          string `json:"app_id"`          // github_app
 		InstallationID string `json:"installation_id"` // github_app
-		PrivateKey     string `json:"private_key"`     // github_app
+		PrivateKey     string `json:"private_key"`     // github_app, ssh_key
+		Passphrase     string `json:"passphrase"`      // ssh_key (optional)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
 		apiErr(w, "name is required", 400)
@@ -79,6 +80,26 @@ func (app *App) createCredential(w http.ResponseWriter, r *http.Request) {
 			"installation_id": body.InstallationID,
 			"private_key":     encryptedKey,
 		})
+	case "ssh_key":
+		if body.PrivateKey == "" {
+			apiErr(w, "private_key is required for ssh_key credentials", 400)
+			return
+		}
+		encryptedKey, err := encryptToken(body.PrivateKey)
+		if err != nil {
+			apiErr(w, "encryption error: "+err.Error(), 500)
+			return
+		}
+		data := map[string]string{"private_key": encryptedKey}
+		if body.Passphrase != "" {
+			encryptedPass, err := encryptToken(body.Passphrase)
+			if err != nil {
+				apiErr(w, "encryption error: "+err.Error(), 500)
+				return
+			}
+			data["passphrase"] = encryptedPass
+		}
+		rawData, _ = json.Marshal(data)
 	default:
 		apiErr(w, "unsupported credential type: "+body.Type, 400)
 		return

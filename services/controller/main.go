@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log"
@@ -82,15 +83,15 @@ func startPending(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clients
 		if imageUsed == "" {
 			imageUsed = defaultImage
 		}
-		var gitToken string
+		var auth *gitAuth
 		if credType != "" && gitURL != "" {
 			var err error
-			gitToken, err = resolveGitToken(credType, credData)
+			auth, err = resolveCredential(credType, credData)
 			if err != nil {
-				log.Printf("job %s: credential resolve failed: %v — skipping token", jobID, err)
+				log.Printf("job %s: credential resolve failed: %v — skipping auth", jobID, err)
 			}
 		}
-		if err := spawnJob(ctx, db, k8s, ns, jobID, imageUsed, playbook, extraVars, gitURL, gitRef, gitToken, pullSecret); err != nil {
+		if err := spawnJob(ctx, db, k8s, ns, jobID, imageUsed, playbook, extraVars, gitURL, gitRef, auth, pullSecret); err != nil {
 			log.Printf("spawn job %s: %v", jobID, err)
 		}
 	}
@@ -115,7 +116,7 @@ func syncRunning(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientse
 	return nil
 }
 
-func spawnJob(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, ns, jobID, imageUsed, playbook, extraVars, gitURL, gitRef, gitToken, pullSecret string) error {
+func spawnJob(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, ns, jobID, imageUsed, playbook, extraVars, gitURL, gitRef string, auth *gitAuth, pullSecret string) error {
 	k8sName := "bosun-" + strings.ReplaceAll(jobID, "-", "")[:16]
 
 	i32 := func(v int32) *int32 { return &v }
@@ -145,7 +146,7 @@ func spawnJob(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, 
 						{
 							Name:  "runner",
 							Image: imageUsed,
-							Env: buildEnv(jobID, playbook, extraVars, gitURL, gitRef, gitToken),
+							Env: buildEnv(jobID, playbook, extraVars, gitURL, gitRef, auth),
 						},
 					},
 				},
@@ -175,7 +176,7 @@ func spawnJob(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, 
 	return nil
 }
 
-func buildEnv(jobID, playbook, extraVars, gitURL, gitRef, gitToken string) []corev1.EnvVar {
+func buildEnv(jobID, playbook, extraVars, gitURL, gitRef string, auth *gitAuth) []corev1.EnvVar {
 	env := []corev1.EnvVar{
 		{Name: "JOB_ID", Value: jobID},
 		{Name: "PLAYBOOK", Value: playbook},
@@ -189,8 +190,19 @@ func buildEnv(jobID, playbook, extraVars, gitURL, gitRef, gitToken string) []cor
 			corev1.EnvVar{Name: "GIT_URL", Value: gitURL},
 			corev1.EnvVar{Name: "GIT_REF", Value: gitRef},
 		)
-		if gitToken != "" {
-			env = append(env, corev1.EnvVar{Name: "GIT_TOKEN", Value: gitToken})
+		if auth != nil {
+			if auth.sshKey != "" {
+				// Base64-encode the PEM so newlines survive the env var round-trip
+				env = append(env, corev1.EnvVar{
+					Name:  "GIT_SSH_KEY",
+					Value: base64.StdEncoding.EncodeToString([]byte(auth.sshKey)),
+				})
+				if auth.passphrase != "" {
+					env = append(env, corev1.EnvVar{Name: "GIT_SSH_PASSPHRASE", Value: auth.passphrase})
+				}
+			} else if auth.token != "" {
+				env = append(env, corev1.EnvVar{Name: "GIT_TOKEN", Value: auth.token})
+			}
 		}
 	}
 	return env

@@ -171,7 +171,7 @@
         <input id="tpl-git-url" placeholder="https://github.com/org/repo.git">
         <p class="text-muted mt-2">If set, the runner clones this repo and runs the playbook relative to its root. Leave blank to use the image's bundled playbooks.</p>
       </div>
-      <div class="field"><label>Git Ref (branch, tag)</label><input id="tpl-git-ref" placeholder="main"></div>
+      <div class="field"><label>Git Ref (branch, tag, or SHA)</label><input id="tpl-git-ref" placeholder="main"></div>
       <div class="field">
         <label>Git Credential</label>
         <select id="tpl-credential">
@@ -203,6 +203,7 @@
         <select id="cred-type" onchange="onCredTypeChange()">
           <option value="pat">Personal Access Token (PAT)</option>
           <option value="github_app">GitHub App</option>
+          <option value="ssh_key">SSH Deploy Key</option>
         </select>
       </div>
       <!-- PAT fields -->
@@ -223,6 +224,18 @@
           <label>Private Key (PEM) *</label>
           <textarea id="cred-private-key" rows="6" placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----"></textarea>
           <p class="text-muted mt-2">Generated in your GitHub App settings. Stored encrypted.</p>
+        </div>
+      </div>
+      <!-- SSH Deploy Key fields -->
+      <div id="cred-fields-ssh_key" class="hidden">
+        <div class="field">
+          <label>Private Key (PEM) *</label>
+          <textarea id="cred-ssh-private-key" rows="6" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"></textarea>
+          <p class="text-muted mt-2">Paste the deploy key private key. Add the public key to your repo's deploy keys. Stored encrypted.</p>
+        </div>
+        <div class="field">
+          <label>Passphrase</label>
+          <input id="cred-ssh-passphrase" type="password" placeholder="(leave blank if key has no passphrase)">
         </div>
       </div>
       <p id="cred-err" class="err hidden"></p>
@@ -437,6 +450,7 @@ function onCredTypeChange() {
   const type = val('cred-type');
   document.getElementById('cred-fields-pat').classList.toggle('hidden', type !== 'pat');
   document.getElementById('cred-fields-github_app').classList.toggle('hidden', type !== 'github_app');
+  document.getElementById('cred-fields-ssh_key').classList.toggle('hidden', type !== 'ssh_key');
 }
 
 function openCreateCredential() {
@@ -446,6 +460,8 @@ function openCreateCredential() {
   document.getElementById('cred-app-id').value = '';
   document.getElementById('cred-installation-id').value = '';
   document.getElementById('cred-private-key').value = '';
+  document.getElementById('cred-ssh-private-key').value = '';
+  document.getElementById('cred-ssh-passphrase').value = '';
   document.getElementById('cred-err').classList.add('hidden');
   onCredTypeChange();
   document.getElementById('modal-cred').classList.remove('hidden');
@@ -465,6 +481,11 @@ async function saveCredential() {
     if (!body.app_id || !body.installation_id || !body.private_key) {
       setErr('cred-err', 'App ID, Installation ID, and Private Key are required'); return;
     }
+  } else if (type === 'ssh_key') {
+    body.private_key = document.getElementById('cred-ssh-private-key').value.trim();
+    if (!body.private_key) { setErr('cred-err', 'Private key is required'); return; }
+    const pp = document.getElementById('cred-ssh-passphrase').value;
+    if (pp) body.passphrase = pp;
   }
   try {
     await post('/credentials', body);

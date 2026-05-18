@@ -53,6 +53,14 @@ deploy: deploy-ns
 	kubectl apply -f deploy/manifests/controller.yaml
 	kubectl apply -f deploy/manifests/ui.yaml
 
+nuke:
+	kubectl delete namespace bosun --ignore-not-found
+	@echo "Waiting for namespace to terminate..."
+	kubectl wait --for=delete namespace/bosun --timeout=120s 2>/dev/null || true
+
+reset: nuke deploy
+	@echo "Cluster reset complete — namespace re-created and all manifests applied."
+
 status:
 	kubectl get all -n bosun
 
@@ -69,4 +77,4 @@ tidy:
 
 .PHONY: dev dev-down build build-api build-controller build-runner build-ui \
         push deploy deploy-ns create-pull-secret gen-credentials-key \
-        status logs-api logs-controller tidy
+        nuke reset status logs-api logs-controller tidy
