@@ -3,13 +3,39 @@ package main
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
+
+// encryptToken encrypts plaintext using AES-256-GCM and returns "aes256gcm:<b64>".
+// Mirrors the same function in the API service so the controller can store
+// CRD-sourced credential values with the same encoding the API uses.
+func encryptToken(plaintext string) (string, error) {
+	key, err := loadCredentialsKey()
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+	sealed := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return "aes256gcm:" + base64.StdEncoding.EncodeToString(sealed), nil
+}
 
 type gitAuth struct {
 	token      string // HTTPS token (PAT or GitHub App installation token)

@@ -39,20 +39,27 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(app.requireAuth)
 
-		r.Get("/api/v1/credentials", app.listCredentials)
-		r.Post("/api/v1/credentials", app.createCredential)
-		r.Delete("/api/v1/credentials/{id}", app.deleteCredential)
+		// credentials
+		r.With(app.requirePermission("credential", "read")).Get("/api/v1/credentials", app.listCredentials)
+		r.With(app.requirePermission("credential", "write")).Post("/api/v1/credentials", app.createCredential)
+		r.With(app.requirePermission("credential", "delete")).Delete("/api/v1/credentials/{id}", app.deleteCredential)
 
-		r.Get("/api/v1/templates", app.listTemplates)
-		r.Post("/api/v1/templates", app.createTemplate)
-		r.Get("/api/v1/templates/{id}", app.getTemplate)
-		r.Put("/api/v1/templates/{id}", app.updateTemplate)
-		r.Delete("/api/v1/templates/{id}", app.deleteTemplate)
-		r.Post("/api/v1/templates/{id}/launch", app.launchTemplate)
+		// templates
+		r.With(app.requirePermission("template", "read")).Get("/api/v1/templates", app.listTemplates)
+		r.With(app.requirePermission("template", "write")).Post("/api/v1/templates", app.createTemplate)
+		r.With(app.requirePermission("template", "read")).Get("/api/v1/templates/{id}", app.getTemplate)
+		r.With(app.requirePermission("template", "write")).Put("/api/v1/templates/{id}", app.updateTemplate)
+		r.With(app.requirePermission("template", "delete")).Delete("/api/v1/templates/{id}", app.deleteTemplate)
+		r.With(app.requirePermission("template", "execute")).Post("/api/v1/templates/{id}/launch", app.launchTemplate)
 
-		r.Get("/api/v1/jobs", app.listJobs)
-		r.Get("/api/v1/jobs/{id}", app.getJob)
-		r.Get("/api/v1/jobs/{id}/logs", app.streamLogs)
+		// jobs
+		r.With(app.requirePermission("job", "read")).Get("/api/v1/jobs", app.listJobs)
+		r.With(app.requirePermission("job", "read")).Get("/api/v1/jobs/{id}", app.getJob)
+		r.With(app.requirePermission("job", "read")).Get("/api/v1/jobs/{id}/logs", app.streamLogs)
+
+		// users
+		r.Post("/api/v1/users", app.createUser) // admin check inside handler
+		r.Get("/api/v1/users/me", app.getMe)
 	})
 
 	addr := ":" + envOr("PORT", "8080")

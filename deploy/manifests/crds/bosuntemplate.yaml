@@ -1,0 +1,44 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: bosuntemplates.bosun.io
+spec:
+  group: bosun.io
+  names:
+    kind: BosunTemplate
+    plural: bosuntemplates
+    singular: bosuntemplate
+    shortNames: [btpl]
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [playbook]
+              properties:
+                playbook:
+                  type: string
+                  description: Playbook path — relative to repo root if gitUrl is set, absolute path in image otherwise.
+                gitUrl:
+                  type: string
+                  description: Git repository URL (HTTPS or SSH).
+                gitRef:
+                  type: string
+                  description: Branch, tag, or commit SHA. Defaults to "main".
+                  default: main
+                credentialRef:
+                  type: string
+                  description: Name of a BosunCredential in the same namespace.
+                image:
+                  type: string
+                  description: Runner image override. Defaults to DEFAULT_RUNNER_IMAGE on the controller.
+                extraVars:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                  description: Ansible extra-vars passed to ansible-playbook --extra-vars.

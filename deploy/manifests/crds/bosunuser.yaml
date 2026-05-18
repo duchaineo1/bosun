@@ -1,0 +1,35 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: bosunusers.bosun.io
+spec:
+  group: bosun.io
+  names:
+    kind: BosunUser
+    plural: bosunusers
+    singular: bosunuser
+    shortNames: [busr]
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [username]
+              properties:
+                username:
+                  type: string
+                  description: Must match an existing Bosun user (created via POST /api/v1/users or /api/v1/setup).
+                role:
+                  type: string
+                  enum: [admin, operator, viewer]
+                  default: viewer
+                  description: >
+                    admin: full CRUD on all resources.
+                    operator: read/write templates, read credentials, launch jobs.
+                    viewer: read-only on templates and jobs.

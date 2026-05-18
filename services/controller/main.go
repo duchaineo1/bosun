@@ -15,6 +15,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -33,7 +34,7 @@ func main() {
 		log.Fatalf("db: %v", err)
 	}
 
-	k8s, err := newK8sClient()
+	k8s, dynClient, err := newK8sClient()
 	if err != nil {
 		log.Fatalf("k8s: %v", err)
 	}
@@ -46,18 +47,22 @@ func main() {
 
 	ticker := time.NewTicker(5 * time.Second)
 	for range ticker.C {
-		if err := reconcile(ctx, db, k8s, ns, defaultImage, pullSecret); err != nil {
+		if err := reconcile(ctx, db, k8s, dynClient, ns, defaultImage, pullSecret); err != nil {
 			log.Printf("reconcile: %v", err)
 		}
 	}
 }
 
-func reconcile(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, ns, defaultImage, pullSecret string) error {
+func reconcile(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientset, dyn dynamic.Interface, ns, defaultImage, pullSecret string) error {
 	if err := startPending(ctx, db, k8s, ns, defaultImage, pullSecret); err != nil {
 		return fmt.Errorf("startPending: %w", err)
 	}
 	if err := syncRunning(ctx, db, k8s, ns); err != nil {
 		return fmt.Errorf("syncRunning: %w", err)
+	}
+	// Operator reconcile: CRD errors are logged but never block job scheduling
+	if err := reconcileOperator(ctx, db, dyn, k8s, ns); err != nil {
+		log.Printf("reconcileOperator: %v", err)
 	}
 	return nil
 }
@@ -303,16 +308,24 @@ func checkK8sJob(ctx context.Context, db *pgxpool.Pool, k8s *kubernetes.Clientse
 	}
 }
 
-func newK8sClient() (*kubernetes.Clientset, error) {
+func newK8sClient() (*kubernetes.Clientset, dynamic.Interface, error) {
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
 		kc := envOr("KUBECONFIG", os.Getenv("HOME")+"/.kube/config")
 		cfg, err = clientcmd.BuildConfigFromFlags("", kc)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return kubernetes.NewForConfig(cfg)
+	k8s, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	dyn, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	return k8s, dyn, nil
 }
 
 func mustEnv(k string) string {

@@ -45,7 +45,10 @@ create-pull-secret:
 		--namespace=bosun \
 		--dry-run=client -o yaml | kubectl apply -f -
 
-deploy: deploy-ns
+deploy-crds:
+	kubectl apply -f deploy/manifests/crds/
+
+deploy: deploy-ns deploy-crds
 	kubectl apply -f deploy/manifests/secrets.yaml
 	kubectl apply -f deploy/manifests/rbac.yaml
 	kubectl apply -f deploy/manifests/postgres.yaml
@@ -76,5 +79,5 @@ tidy:
 	cd services/controller && go mod tidy
 
 .PHONY: dev dev-down build build-api build-controller build-runner build-ui \
-        push deploy deploy-ns create-pull-secret gen-credentials-key \
+        push deploy deploy-ns deploy-crds create-pull-secret gen-credentials-key \
         nuke reset status logs-api logs-controller tidy
